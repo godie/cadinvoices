@@ -1,6 +1,6 @@
 import { cleanup } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { afterEach, vi } from "vitest";
+import { afterEach } from "vitest";
 
 // Mock localStorage
 const localStorageMock = (() => {
@@ -22,7 +22,7 @@ const localStorageMock = (() => {
 Object.defineProperty(window, "localStorage", { value: localStorageMock });
 
 // Mock crypto.randomUUID
-Object.defineProperty(global, "crypto", {
+Object.defineProperty(globalThis, "crypto", {
   value: {
     randomUUID: () => Math.random().toString(36).substring(2, 15),
   },
