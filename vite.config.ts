@@ -4,8 +4,9 @@ import { defineConfig } from "vite";
 export default defineConfig({
   plugins: [tailwindcss()],
   test: {
-    environment: "jsdom",
     globals: true,
-    setupFiles: ["./src/test/setup.ts"],
+    environment: "happy-dom",
+    setupFiles: "./src/test/setup.ts",
+    include: ["src/test/**/*.test.{ts,tsx}"],
   },
 });
