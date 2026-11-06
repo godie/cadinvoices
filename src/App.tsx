@@ -16,6 +16,9 @@ import {
   loadBusinessDefaults,
   getNextInvoiceNumber,
   incrementInvoiceNumber,
+  saveNamedDraft,
+  getAllDrafts,
+  getDraft,
 } from "./utils/storage";
 import type { Invoice, FormErrors } from "./types";
 
@@ -131,6 +134,7 @@ function flattenZodErrors(zodError: z.ZodError): FormErrors {
 export default function App(): ReactElement {
   const [errors, setErrors] = useState<FormErrors>({});
   const [saved, setSaved] = useState(true);
+  const [importMessage, setImportMessage] = useState("");
   const [previewMode, setPreviewMode] = useState<"html" | "pdf">("html");
   const [currentDraftId, setCurrentDraftId] = useState<string | null>(getCurrentDraftId());
   const [currentDraftName, setCurrentDraftName] = useState<string | null>(() => {
@@ -139,6 +143,9 @@ export default function App(): ReactElement {
   });
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const skipSave = useRef(false);
+  const importing = useRef(false);
+  const currentDraftIdRef = useRef(currentDraftId);
+  currentDraftIdRef.current = currentDraftId;
 
   const defaultValues = useMemo(() => getInitialValues(), []);
 
@@ -205,6 +212,47 @@ export default function App(): ReactElement {
     form.reset(freshInvoice());
   };
 
+  const handleImport = async (file: File) => {
+    if (importing.current) return;
+    importing.current = true;
+    setImportMessage("");
+    try {
+      const { importInvoicePdf } = await import("./utils/importPdf");
+      const blank = freshInvoice();
+      blank.serviceStartDate = "";
+      blank.serviceEndDate = "";
+      blank.logo = "";
+      blank.notes = "";
+      const imported = await importInvoicePdf(file, blank);
+      const uniqueName = (prefix: string) => {
+        const names = new Set(getAllDrafts().map((draft) => draft.name));
+        let name = prefix;
+        let n = 2;
+        while (names.has(name)) name = `${prefix} (${n++})`;
+        return name;
+      };
+      clearTimeout(saveTimer.current);
+      const currentId = currentDraftIdRef.current;
+      const currentValues = form.state.values;
+      if (currentId) {
+        saveCurrentDraft(currentId, currentValues);
+        if (JSON.stringify(getDraft(currentId)) !== JSON.stringify(currentValues)) throw new Error("Could not save the current draft.");
+      } else {
+        const id = saveNamedDraft(uniqueName("Previous invoice"), currentValues);
+        if (!getDraft(id)) throw new Error("Could not save the current invoice.");
+      }
+      const name = uniqueName(`Imported ${imported.invoiceNumber}`);
+      const id = saveNamedDraft(name, imported);
+      if (!getDraft(id)) throw new Error("Could not save the imported invoice.");
+      handleLoadDraft(imported, name, id);
+      setImportMessage("Imported into a new draft. Review all fields, especially client details, service rows, dates, notes and payment information; some PDF data cannot be recovered reliably.");
+    } catch (error) {
+      setImportMessage(error instanceof Error ? `Import failed: ${error.message}` : "Import failed: invalid or unreadable PDF.");
+    } finally {
+      importing.current = false;
+    }
+  };
+
   const handleReset = () => {
     setErrors({});
     if (currentDraftId) {
@@ -236,6 +284,10 @@ export default function App(): ReactElement {
             >
               {saved ? "✓ Saved" : "Saving…"}
             </span>
+            <label className="px-4 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
+              Import PDF
+              <input type="file" accept="application/pdf,.pdf" className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; if (file) void handleImport(file); event.target.value = ""; }} />
+            </label>
             <DraftsMenu
               currentDraftName={currentDraftName}
               currentValues={values}
@@ -263,6 +315,7 @@ export default function App(): ReactElement {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {importMessage && <div role="status" className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-900">{importMessage}</div>}
         {Object.keys(errors).length > 0 && (
           <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
             <p className="text-sm font-medium text-red-800 mb-2">
